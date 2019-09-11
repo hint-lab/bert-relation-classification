@@ -1,4 +1,4 @@
-# A Pytorch Implementations of BERT-based Relation Classification
+# A Pytorch Implementation of BERT-based Relation Classification
 
 This is a stable pytorch implementation of ``Enriching Pre-trained Language Model with Entity Information for Relation Classification`` https://arxiv.org/abs/1905.08284.
 ### Requirements:
