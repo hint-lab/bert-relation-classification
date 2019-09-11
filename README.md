@@ -4,7 +4,9 @@ This is a stable pytorch implementation of ``Enriching Pre-trained Language Mode
 ### Requirements:
  
 Python version >= 3.6 (recommended)
+
 Pytorch version >= 1.1 (recommended)
+
 pytorch-transformers: https://github.com/huggingface/pytorch-transformers
 
 
