@@ -49,8 +49,8 @@ Evaluating: 100%|█████████████████████
 ```
 
 ```
-(the result reported in the paper) MACRO-averaged result (excluding Other): 89.25
-(this pytorch implementation) MACRO-averaged result (excluding Other): 88.81
+(the result reported in the paper) MACRO-averaged result (excluding Other, uncased-large-model): 89.25
+(this pytorch implementation) MACRO-averaged result (excluding Other, uncased-base-model): 88.81
 ```
 
 
