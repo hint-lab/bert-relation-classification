@@ -8,7 +8,7 @@ import torch.nn as nn
 import numpy as np
 import torch
 import socket
-
+# wss
 # import ptvsd
 # Allow other computers to attach to ptvsd at this IP address and port.
 # ptvsd.enable_attach(address=('192.168.11.2', 3000), redirect_output=True)
@@ -21,149 +21,22 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 # from tensorboardX import SummaryWriter
 from tqdm import tqdm, trange
-from torch.nn import MSELoss, CrossEntropyLoss
-from pytorch_transformers import (
-    WEIGHTS_NAME, BertConfig, BertModel, BertPreTrainedModel, BertTokenizer)
+
+from pytorch_transformers import (WEIGHTS_NAME, BertConfig, BertTokenizer)
 
 from pytorch_transformers import AdamW, WarmupLinearSchedule
-import torch.nn.functional as F
+
 from utils import (RELATION_LABELS, compute_metrics, convert_examples_to_features,
                    output_modes, data_processors)
-
+import torch.nn.functional as F
 
 from argparse import ArgumentParser
 from config import Config
-
+from model import BertForSequenceClassification
 logger = logging.getLogger(__name__)
-additional_special_tokens = ["[E11]", "[E12]", "[E21]", "[E22]"]
-
-
-class BertForSequenceClassification(BertPreTrainedModel):
-    r"""
-        **labels**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
-            Labels for computing the sequence classification/regression loss.
-            Indices should be in ``[0, ..., config.num_labels - 1]``.
-            If ``config.num_labels == 1`` a regression loss is computed (Mean-Square loss),
-            If ``config.num_labels > 1`` a classification loss is computed (Cross-Entropy).
-
-    Outputs: `Tuple` comprising various elements depending on the configuration (config) and inputs:
-        **loss**: (`optional`, returned when ``labels`` is provided) ``torch.FloatTensor`` of shape ``(1,)``:
-            Classification (or regression if config.num_labels==1) loss.
-        **logits**: ``torch.FloatTensor`` of shape ``(batch_size, config.num_labels)``
-            Classification (or regression if config.num_labels==1) scores (before SoftMax).
-        **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
-            list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
-            of shape ``(batch_size, sequence_length, hidden_size)``:
-            Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-        **attentions**: (`optional`, returned when ``config.output_attentions=True``)
-            list of ``torch.FloatTensor`` (one for each layer) of shape ``(batch_size, num_heads, sequence_length, sequence_length)``:
-            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention heads.
-
-    Examples::
-
-        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        model = BertForSequenceClassification.from_pretrained(
-            'bert-base-uncased')
-        input_ids = torch.tensor(tokenizer.encode(
-            "Hello, my dog is cute")).unsqueeze(0)  # Batch size 1
-        labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
-        outputs = model(input_ids, labels=labels)
-        loss, logits = outputs[:2]
-
-    """
-
-    def __init__(self, config):
-        super(BertForSequenceClassification, self).__init__(config)
-        self.num_labels = config.num_labels
-        self.l2_reg_lambda = config.l2_reg_lambda
-        self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(
-            config.hidden_size*3, self.config.num_labels)
-        self.tanh = nn.Tanh()
-        self.apply(self.init_weights)
-
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, e1_mask=None, e2_mask=None, labels=None,
-                position_ids=None, head_mask=None):
-        outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
-                            attention_mask=attention_mask, head_mask=head_mask)
-        # for details, see the document of pytorch-transformer
-        pooled_output = outputs[1]
-        sequence_output = outputs[0]
-        # mask method 1
-        # p.s. This makes me crazy that the mask method does not work, it should work...
-        # extended_e1_mask = e1_mask.unsqueeze(2)
-
-        # extended_e1_mask = (1.0 - extended_e1_mask) * -10000.0
-        # extended_e1_mask = extended_e1_mask.expand_as(sequence_output)
-
-        # extended_e2_mask = e2_mask.unsqueeze(2)
-        # extended_e2_mask = (1.0 - extended_e2_mask) * -10000.0
-        # extended_e2_mask = extended_e2_mask.expand_as(sequence_output)
-
-        # e1 = self.tanh(sequence_output-extended_e1_mask.float()).mean(dim=1)
-        # e2 = self.tanh(sequence_output-extended_e2_mask.float()).mean(dim=1)
-
-        # mask method 2, it is not necessary to divide the length of entity.
-        # the simplified verison even outperforms the full version.
-        # e1_len = e1_mask.ne(0).float().sum(dim=1)
-        # batch_size = e1_len.size(0)
-        # for i in range(batch_size):
-        #    e1_mask[i, :] /= e1_len[i]
-        extended_e1_mask = e1_mask.unsqueeze(1)
-        extended_e1_mask = torch.bmm(
-            extended_e1_mask.float(), sequence_output).squeeze(1)
-
-        # e2_len = e2_mask.ne(0).float().sum(dim=1)
-        # batch_size = e2_len.size(0)
-        # for i in range(batch_size):
-        #    e2_mask[i, :] /= e2_len[i]
-        extended_e2_mask = e2_mask.unsqueeze(1)
-        extended_e2_mask = torch.bmm(
-            extended_e2_mask.float(), sequence_output).squeeze(1)
-
-        e1 = self.tanh(extended_e1_mask.float())
-        e2 = self.tanh(extended_e2_mask.float())
-
-        pooled_output = self.dropout(
-            torch.cat([self.tanh(pooled_output), e1, e2], dim=-1))
-        # print(pooled_output.size())
-        logits = self.classifier(pooled_output)
-        # add hidden states and attention if they are here
-        outputs = (logits,) + outputs[2:]
-        # probabilities = F.softmax(logits, dim=-1)
-        # log_probs = F.log_softmax(logits, dim=-1)
-
-        # one_hot_labels = F.one_hot(labels, num_classes=self.num_labels)
-
-        # per_example_loss = - \
-        #     tf.reduce_min(one_hot_labels[:, 1:] * log_probs[:, 1:], axis=-1)
-
-        # l2 = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
-
-        # rc_probabilities = probabilities - probabilities * one_hot_labels
-        # second_pre = - tf.reduce_max(rc_probabilities[:, 1:], axis=-1) + 1
-        # # + tf.math.log(second_pre) * log_probs[:,0]
-        # rc_loss = - tf.math.log(second_pre)
-
-        # loss = tf.reduce_sum(per_example_loss) + 5 * \
-        #     tf.reduce_sum(rc_loss) + l2 * l2_reg_lambda
-        device = logits.get_device()
-        loss = torch.sum(torch.tensor([torch.sum(p ** 2) / 2
-                                       for p in self.parameters() if p.requires_grad])).to(device)*self.l2_reg_lambda
-        if labels is not None:
-            if self.num_labels == 1:
-                #  We are doing regression
-                loss_fct = MSELoss()
-                loss += loss_fct(logits.view(-1), labels.view(-1))
-            else:
-                # maybe next time I will add the L2 loss
-                loss_fct = CrossEntropyLoss()
-                loss += loss_fct(
-                    logits.view(-1, self.num_labels), labels.view(-1))
-            outputs = (loss,) + outputs
-
-        return outputs  # (loss), logits, (hidden_states), (attentions)
+#additional_special_tokens = ["[E11]", "[E12]", "[E21]", "[E22]"]
+additional_special_tokens = []
+#additional_special_tokens = ["e11", "e12", "e21", "e22"]
 
 
 def set_seed(seed):
@@ -252,7 +125,6 @@ def train(config, train_dataset, model, tokenizer):
             outputs = model(**inputs)
             # model outputs are always tuple in pytorch-transformers (see doc)
             loss = outputs[0]
-
             if config.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
             if config.gradient_accumulation_steps > 1:
@@ -276,19 +148,19 @@ def train(config, train_dataset, model, tokenizer):
                     if config.local_rank == -1 and config.evaluate_during_training:
                         results = evaluate(config, model, tokenizer)
                     logging_loss = tr_loss
-                if config.local_rank in [-1, 0] and config.save_steps > 0 and global_step % config.save_steps == 0:
-                    # Save model checkpoint
-                    output_dir = os.path.join(
-                        config.output_dir, 'checkpoint-{}'.format(global_step))
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-                    # Take care of distributed/parallel training
-                    model_to_save = model.module if hasattr(
-                        model, 'module') else model
-                    model_to_save.save_pretrained(output_dir)
-                    torch.save(config, os.path.join(
-                        output_dir, 'training_config.bin'))
-                    logger.info("Saving model checkpoint to %s", output_dir)
+                # if config.local_rank in [-1, 0] and config.save_steps > 0 and global_step % config.save_steps == 0:
+                #     # Save model checkpoint
+                #     output_dir = os.path.join(
+                #         config.output_dir, 'checkpoint-{}'.format(global_step))
+                #     if not os.path.exists(output_dir):
+                #         os.makedirs(output_dir)
+                #     # Take care of distributed/parallel training
+                #     model_to_save = model.module if hasattr(
+                #         model, 'module') else model
+                #     model_to_save.save_pretrained(output_dir)
+                #     torch.save(config, os.path.join(
+                #         output_dir, 'training_config.bin'))
+                #     logger.info("Saving model checkpoint to %s", output_dir)
 
             if config.max_steps > 0 and global_step > config.max_steps:
                 epoch_iterator.close()
@@ -375,27 +247,27 @@ def load_and_cache_examples(config, task, tokenizer, evaluate=False):
 
     processor = data_processors[config.task_name]()
     # Load data features from cache or dataset file
-    cached_features_file = os.path.join(config.data_dir, 'cached_{}_{}_{}_{}'.format(
-        'dev' if evaluate else 'train',
-        list(filter(None, 'bert-base-uncased'.split('/'))).pop(),
-        str(config.max_seq_len),
-        str(task)))
-    if os.path.exists(cached_features_file):
-        logger.info("Loading features from cached file %s",
-                    cached_features_file)
-        features = torch.load(cached_features_file)
-    else:
-        logger.info("Creating features from dataset file at %s",
-                    config.data_dir)
-        label_list = processor.get_labels()
-        examples = processor.get_dev_examples(
-            config.data_dir) if evaluate else processor.get_train_examples(config.data_dir)
-        features = convert_examples_to_features(
-            examples, label_list, config.max_seq_len, tokenizer, "classification", use_entity_indicator=config.use_entity_indicator)
-    if config.local_rank in [-1, 0]:
-        logger.info("Saving features into cached file %s",
-                    cached_features_file)
-        torch.save(features, cached_features_file)
+    # cached_features_file = os.path.join(config.data_dir, 'cached_{}_{}_{}_{}'.format(
+    #     'dev' if evaluate else 'train',
+    #     list(filter(None, 'bert-large-uncased'.split('/'))).pop(),
+    #     str(config.max_seq_len),
+    #     str(task)))
+    # if os.path.exists(cached_features_file):
+    #     logger.info("Loading features from cached file %s",
+    #                 cached_features_file)
+    #     features = torch.load(cached_features_file)
+    # else:
+    logger.info("Creating features from dataset file at %s",
+                config.data_dir)
+    label_list = processor.get_labels()
+    examples = processor.get_dev_examples(
+        config.data_dir) if evaluate else processor.get_train_examples(config.data_dir)
+    features = convert_examples_to_features(
+        examples, label_list, config.max_seq_len, tokenizer, "classification", use_entity_indicator=config.use_entity_indicator)
+    # if config.local_rank in [-1, 0]:
+    #     logger.info("Saving features into cached file %s",
+    #                 cached_features_file)
+    #     torch.save(features, cached_features_file)
 
     if config.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -468,12 +340,22 @@ def main():
         torch.distributed.barrier()
     # Make sure only the first process in distributed training will download model & vocab
     bertconfig = BertConfig.from_pretrained(
-        'bert-base-uncased', num_labels=num_labels, finetuning_task=config.task_name)
+        config.pretrained_model_name, num_labels=num_labels, finetuning_task=config.task_name)
+    # './large-uncased-model', num_labels=num_labels, finetuning_task=config.task_name)
     bertconfig.l2_reg_lambda = config.l2_reg_lambda
+    bertconfig.latent_entity_typing = config.latent_entity_typing
+    if config.l2_reg_lambda > 0:
+        logger.info("using L2 regularization with lambda  %.5f",
+                    config.l2_reg_lambda)
+    if config.latent_entity_typing:
+        logger.info("adding the component of latent entity typing: %s",
+                    str(config.latent_entity_typing))
     tokenizer = BertTokenizer.from_pretrained(
         'bert-base-uncased', do_lower_case=True, additional_special_tokens=additional_special_tokens)
+    # 'bert-large-uncased', do_lower_case=True, additional_special_tokens=additional_special_tokens)
     model = BertForSequenceClassification.from_pretrained(
-        'bert-base-uncased', config=bertconfig)
+        config.pretrained_model_name, config=bertconfig)
+    # './large-uncased-model', config=bertconfig)
 
     if config.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab

@@ -19,6 +19,7 @@
 from __future__ import absolute_import, division, print_function
 
 import csv
+import re
 import logging
 import os
 import sys
@@ -28,6 +29,44 @@ from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
 
 logger = logging.getLogger(__name__)
+
+
+def clean_str(text):
+    text = text.lower()
+    # Clean the text
+    text = re.sub(r"[^A-Za-z0-9^,!.\/'+-=]", " ", text)
+    text = re.sub(r"what's", "what is ", text)
+    text = re.sub(r"that's", "that is ", text)
+    text = re.sub(r"there's", "there is ", text)
+    text = re.sub(r"it's", "it is ", text)
+    text = re.sub(r"\'s", " ", text)
+    text = re.sub(r"\'ve", " have ", text)
+    text = re.sub(r"can't", "can not ", text)
+    text = re.sub(r"n't", " not ", text)
+    text = re.sub(r"i'm", "i am ", text)
+    text = re.sub(r"\'re", " are ", text)
+    text = re.sub(r"\'d", " would ", text)
+    text = re.sub(r"\'ll", " will ", text)
+    text = re.sub(r",", " ", text)
+    text = re.sub(r"\.", " ", text)
+    text = re.sub(r"!", " ! ", text)
+    text = re.sub(r"\/", " ", text)
+    text = re.sub(r"\^", " ^ ", text)
+    text = re.sub(r"\+", " + ", text)
+    text = re.sub(r"\-", " - ", text)
+    text = re.sub(r"\=", " = ", text)
+    text = re.sub(r"'", " ", text)
+    text = re.sub(r"(\d+)(k)", r"\g<1>000", text)
+    text = re.sub(r":", " : ", text)
+    text = re.sub(r" e g ", " eg ", text)
+    text = re.sub(r" b g ", " bg ", text)
+    text = re.sub(r" u s ", " american ", text)
+    text = re.sub(r"\0s", "0", text)
+    text = re.sub(r" 9 11 ", "911", text)
+    text = re.sub(r"e - mail", "email", text)
+    text = re.sub(r"j k", "jk", text)
+    text = re.sub(r"\s{2,}", " ", text)
+
 
 RELATION_LABELS = ['Other', 'Message-Topic(e1,e2)', 'Message-Topic(e2,e1)',
                    'Product-Producer(e1,e2)', 'Product-Producer(e2,e1)',
@@ -147,12 +186,13 @@ class MrpcProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
+            logger.info(line)
             if i == 0:
                 continue
             guid = "%s-%s" % (set_type, i)
-            text_a = line[3]
-            text_b = line[4]
-            label = line[0]
+            text_a = line[4]
+            text_b = line[5]
+            label = RELATION_LABELS.index(line[0])
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
@@ -187,8 +227,10 @@ class SemEvalProcessor(DataProcessor):
             # if i == 0:
             #     continue
             guid = "%s-%s" % (set_type, i)
+            logger.info(line)
             text_a = line[1]
             text_b = None
+            #label = RELATION_LABELS.index(int(line[2]))
             label = line[2]
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
@@ -220,10 +262,20 @@ def convert_examples_to_features(examples, label_list, max_seq_len,
 
         tokens_a = tokenizer.tokenize(example.text_a)
         if use_entity_indicator:
-            e11_p = tokens_a.index("[E11]")+1   # the start position of entity1
-            e12_p = tokens_a.index("[E12]")+2  # the end position ofentity1
-            e21_p = tokens_a.index("[E21]")+1   # the start position ofentity2
-            e22_p = tokens_a.index("[E22]")+2  # the end position of entity2
+            # e11_p = tokens_a.index("e11")+1   # the start position of entity1
+            # e12_p = tokens_a.index("e12")+2  # the end position ofentity1
+            # e21_p = tokens_a.index("e21")+1   # the start position ofentity2
+            # e22_p = tokens_a.index("e22")+2  # the end position of entity2
+            # e11_p = tokens_a.index("[E11]")+2   # the start position of entity1
+            # e12_p = tokens_a.index("[E12]")+1  # the end position ofentity1
+            # e21_p = tokens_a.index("[E21]")+2   # the start position ofentity2
+            # e22_p = tokens_a.index("[E22]")+1  # the end position of entity2
+            l = len(tokens_a)
+            e11_p = tokens_a.index("#")+1   # the start position of entity1
+            e12_p = l-tokens_a[::-1].index("#")+1  # the end position ofentity1
+            e21_p = tokens_a.index("$")+1   # the start position ofentity2
+            # the end position of entity2
+            e22_p = l-tokens_a[::-1].index("$")+1
 
         tokens_b = None
         if example.text_b:
