@@ -65,18 +65,6 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
         self.apply(self.init_weights)
 
-    def latent_type_attention(self, e1, e2, latent_size):
-        # Latent Entity Type Vectors
-        e1_sim = torch.matmul(e1, self.latent_type.t())
-        e1_alphas = F.softmax(e1_sim, dim=-1)  # (batch, num_type)
-        e1_type = torch.matmul(e1_alphas, self.latent_type)  # (batch, hidden)
-
-        e2_sim = torch.matmul(e2, self.latent_type.t())
-        e2_alphas = F.softmax(e2_sim, dim=-1)  # (batch, num_type)
-        e2_type = torch.matmul(e2_alphas, self.latent_type)  # (batch, hidden)
-
-        return e1_type, e2_type, e1_alphas, e2_alphas
-
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, e1_mask=None, e2_mask=None, labels=None,
                 position_ids=None, head_mask=None):
         outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
@@ -94,17 +82,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
         e1_h = extract_entity(sequence_output, e1_mask)
         e2_h = extract_entity(sequence_output, e2_mask)
         context = self.dropout(pooled_output)
-        # Latent Relation Variable based on Entities
-        if self.latent_entity_typing:
-            e1_type, e2_type, e1_alphas, e2_alphas = self.latent_type_attention(e1_h, e2_h,
-                                                                                latent_size=self.latent_size)  # (batch, hidden)
-            # print(e1_type.size(), e2_type.size(),
-            #      e1_alphas.size(), e2_alphas.size())
-            pooled_output = torch.cat(
-                [context, e1_h, e2_h, e1_type, e2_type], dim=-1)
-            #  [context, e1_h, e2_h, e1_h-e2_h, e1_type-e2_type], dim=-1)
-        else:
-            pooled_output = torch.cat([context, e1_h, e2_h], dim=-1)
+        pooled_output = torch.cat([context, e1_h, e2_h], dim=-1)
 
     #
     #   second_pre = - tf.reduce_max(rc_probabilities[:, 1:], axis=-1) + 1
