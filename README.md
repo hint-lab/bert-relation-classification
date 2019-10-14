@@ -7,7 +7,10 @@ Python version >= 3.6 (recommended)
 
 Pytorch version >= 1.1 (recommended)
 
-pytorch-transformers: https://github.com/huggingface/pytorch-transformers
+pytorch-transformers: https://github.com/huggingface/pytorch-transformers  
+!!! pytorch-transformers = 1.1 
+
+
 
 
 ### Tutorial of the code
