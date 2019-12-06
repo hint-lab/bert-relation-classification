@@ -57,3 +57,8 @@ Evaluating: 100%|█████████████████████
 ```
 
 I also have the source code written in tensorflow. Feel free to contact me if you need it.
+
+We also appreciate if you could cite our recent paper with the best result (90.36).
+Enhancing Relation Extraction Using Syntactic Indicators and Sentential Contexts
+https://arxiv.org/abs/1912.01858
+
