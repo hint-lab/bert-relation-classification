@@ -65,36 +65,7 @@ Enhancing Relation Extraction Using Syntactic Indicators and Sentential Contexts
 https://arxiv.org/abs/1912.01858
 
 or 
-  
-@article{10.1145/3402885,
 
-author = {Wang, Hao and Tao, Qiongxing and Du, Siyuan and Luo, Xiangfeng},
+An Extensible Framework of Leveraging Syntactic Skeleton for Semantic Relation Classification, ACM TALLIP, September 2020 
 
-title = {An Extensible Framework of Leveraging Syntactic Skeleton for Semantic Relation Classification},
-
-year = {2020},
-
-issue_date = {September 2020},
-
-publisher = {Association for Computing Machinery},
-
-address = {New York, NY, USA},
-
-volume = {19},
-
-number = {6},
-
-issn = {2375-4699},
-
-url = {https://doi.org/10.1145/3402885},
-
-doi = {10.1145/3402885}, 
-
-journal = {ACM Trans. Asian Low-Resour. Lang. Inf. Process.}, 
-
-articleno = {77},
-
-numpages = {21} 
-
-}
-  
+https://dl.acm.org/doi/10.1145/3402885
